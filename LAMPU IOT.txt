@@ -1,0 +1,90 @@
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <SinricPro.h>
+#include <SinricProSwitch.h>
+
+// ==================== KONFIGURASI WIFI ====================
+#define WIFI_SSID         "NAMA WIFI"
+#define WIFI_PASS         "ISI PASWORD"
+
+// ==================== KONFIGURASI SINRIC PRO ====================
+#define APP_KEY           "ISI DENGAN APP KEYNYA"      // Contoh: 12345678-1234-1234-1234-1234567890ab
+#define APP_SECRET        "ISI DENGAN SECRET KEY NYA"   // Contoh: 12345678-1234-1234-1234-1234567890ab-12345678-1234-1234-1234-1234567890ab
+#define SWITCH_ID         "ISI DENGAN DEVICE ID NYA"    // Contoh: 607f1588baa0e35824f81234
+
+// ==================== KONFIGURASI PIN ====================
+// GPIO 4 pada ESP8266 NodeMCU Lolin berlabel D2
+#define RELAY_PIN         D2 
+
+// Ubah ke 'true' jika Relay menyala saat LOW (Active LOW Relay Module)
+// Ubah ke 'false' jika Relay menyala saat HIGH (Active HIGH)
+bool RELAY_INVERTED = true;
+
+void setRelayState(bool state) {
+  if (RELAY_INVERTED) {
+    digitalWrite(RELAY_PIN, state ? LOW : HIGH);
+  } else {
+    digitalWrite(RELAY_PIN, state ? HIGH : LOW);
+  }
+}
+
+// Callback saat perintah ON/OFF diterima dari Sinric Pro / Google Assistant
+bool onPowerState(const String &deviceId, bool &state) {
+  Serial.printf("Device %s turned %s\r\n", deviceId.c_str(), state ? "ON" : "OFF");
+  setRelayState(state);
+  return true; // Beri tahu Sinric Pro bahwa perintah berhasil dieksekusi
+}
+
+void setupWiFi() {
+  // Pastikan ESP8266 diset sebagai Station (Client)
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+
+  Serial.printf("\r\n[WiFi]: Connecting to %s ", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  int timeout = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+    timeout++;
+
+    // Jika dalam 30 detik (60 x 500ms) tidak terhubung, coba panggil WiFi.begin lagi
+    if (timeout >= 60) {
+      Serial.println("\r\n[WiFi]: Retrying connection...");
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      timeout = 0;
+    }
+  }
+
+  Serial.println("");
+  Serial.println("[WiFi]: Connected successfully!");
+  Serial.print("[WiFi]: IP Address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void setupSinricPro() {
+  SinricProSwitch& mySwitch = SinricPro[SWITCH_ID];
+  mySwitch.onPowerState(onPowerState);
+
+  // Setup koneksi Sinric Pro
+  SinricPro.onConnected([](){ Serial.printf("Connected to SinricPro\r\n"); });
+  SinricPro.onDisconnected([](){ Serial.printf("Disconnected from SinricPro\r\n"); });
+  SinricPro.begin(APP_KEY, APP_SECRET);
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Inisialisasi Pin D2 sebagai OUTPUT
+  pinMode(RELAY_PIN, OUTPUT);
+  setRelayState(false); // Default lampu mati saat pertama kali booting
+
+  setupWiFi();
+  setupSinricPro();
+}
+
+void loop() {
+  SinricPro.handle();
+}
